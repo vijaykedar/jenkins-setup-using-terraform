@@ -9,24 +9,62 @@ terraform {
 
 # Configure the AWS Provider
 provider "aws" {
-  region = "us-east-1"
+  region     = "us-east-1"
   access_key = var.access_key
   secret_key = var.secret_key
 }
 
-resource "aws_instance" "Jenkins_server" {
-ami = "ami-0c7217cdde317cfec"  
-instance_type = "t2.micro"
-security_groups = [ "default" ]
-key_name = var.key_name
-tags = {
-  Name: var.instance_name
+resource "aws_security_group" "jenkins_sg"{
+name = "jenkins-sg"
+description = "jenkins security group"
+
+
+dynamic "ingress" {
+for_each = [80, 22, 8080, 443]
+iterator = port
+
+content {
+description = "jenkins port allowing"
+from_port = port.value
+to_port = port.value
+protocol = "tcp"
+cidr_blocks = ["0.0.0.0/0"]
 }
- connection {
-    type     = "ssh"
-    user     = "ubuntu"
+}
+
+dynamic "egress" {
+for_each = [80, 22, 443]
+iterator = port
+
+content {
+description = "jenkins port allowing"
+from_port = port.value
+to_port = port.value
+protocol = "tcp"
+cidr_blocks = ["0.0.0.0/0"]
+}
+}
+
+}
+
+resource "aws_key_pair" "jenkins_key" {
+  key_name   = "jenkins"
+  public_key = file("${path.module}/jenkins.pub")
+}
+
+resource "aws_instance" "Jenkins_server" {
+  ami             = "ami-0c7217cdde317cfec"
+  instance_type   = "t2.medium"
+  security_groups = ["${aws_security_group.jenkins_sg.name}"]
+  key_name        = aws_key_pair.jenkins_key.key_name
+  tags = {
+    Name : var.instance_name
+  }
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
     private_key = file(var.private_key)
-    host     = self.public_ip
+    host        = self.public_ip
   }
 
   provisioner "remote-exec" {
@@ -40,7 +78,7 @@ tags = {
       "sleep 5",
       "sudo apt-get install jenkins -y",
       "sleep 5",
-      "sudo echo 'The initial admin password is: '; cat /var/lib/jenkins/secrets/initialAdminPassword"
+      "sudo echo 'The initial admin password is: '; sudo cat /var/lib/jenkins/secrets/initialAdminPassword"
     ]
   }
 }
